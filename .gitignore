@@ -1,0 +1,64 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual environments
+venv/
+env/
+.venv/
+.env
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Data (do not commit raw data)
+data/raw/
+data/processed/
+*.csv
+*.parquet
+
+# Models (managed by MLflow)
+models/
+*.pkl
+*.joblib
+*.model
+*.bin
+
+# MLflow (local only - use remote registry in prod)
+mlruns/
+mlartifacts/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Logs
+*.log
+logs/
+
+# Internal agent instructions (not for public repos)
+OPUS_AGENT_INSTRUCTIONS.md
+LEARNING_NOTES.md

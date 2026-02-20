@@ -1,0 +1,134 @@
+name: Model Training & Validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/models/**'
+      - 'src/features/**'
+      - 'src/data/**'
+  workflow_dispatch:
+    inputs:
+      model_version:
+        description: 'Model version tag'
+        required: false
+        default: 'auto'
+
+jobs:
+  lint-and-test:
+    name: Lint & Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Lint with ruff
+        run: ruff check src/
+
+      - name: Type check with mypy
+        run: mypy src/ --ignore-missing-imports
+
+      - name: Run unit tests
+        run: pytest tests/ -v --cov=src --cov-report=xml
+        env:
+          DATABASE_URL: sqlite:///test.db
+          REDIS_URL: redis://localhost:6379
+          MLFLOW_TRACKING_URI: file:///tmp/mlruns
+
+  train-and-validate:
+    name: Train & Validate Model
+    runs-on: ubuntu-latest
+    needs: lint-and-test
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Download dataset
+        run: python src/data/download.py
+        env:
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+          DATA_DIR: data/raw
+
+      - name: Run feature engineering
+        run: python src/features/build_features.py
+        env:
+          DATA_DIR: data/raw
+          MLFLOW_TRACKING_URI: file:///tmp/mlruns
+
+      - name: Train model
+        run: python src/models/train.py
+        env:
+          DATABASE_URL: postgresql://test_user:test_password@localhost:5432/test_db
+          MLFLOW_TRACKING_URI: file:///tmp/mlruns
+          MLFLOW_EXPERIMENT_NAME: fraud-detection-ci
+
+      - name: Validate model metrics
+        run: python src/models/validate.py --min-roc-auc 0.90 --min-recall 0.80
+        env:
+          MLFLOW_TRACKING_URI: file:///tmp/mlruns
+
+      - name: Upload model artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-artifacts
+          path: mlruns/
+          retention-days: 30
+
+  api-test:
+    name: API Integration Tests
+    runs-on: ubuntu-latest
+    needs: train-and-validate
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Download model artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: model-artifacts
+          path: mlruns/
+
+      - name: Run API tests
+        run: pytest tests/api/ -v
+        env:
+          MLFLOW_TRACKING_URI: file:///tmp/mlruns
+          MODEL_VERSION: latest
